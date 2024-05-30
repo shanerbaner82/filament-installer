@@ -31,7 +31,7 @@
     },
     "autoload-dev": {
         "psr-4": {
-            "Laravel\\Installer\\Console\\Tests\\": "tests/"
+            "Filament\\Installer\\Console\\Tests\\": "tests/"
         }
     },
     "config": {
