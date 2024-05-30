@@ -49,14 +49,15 @@ class NewCommand extends Command
             ->addOption('database', null, InputOption::VALUE_REQUIRED, 'The database driver your application will use')
             ->addOption('pest', null, InputOption::VALUE_NONE, 'Installs the Pest testing framework')
             ->addOption('phpunit', null, InputOption::VALUE_NONE, 'Installs the PHPUnit testing framework')
-            ->addOption('force', 'f', InputOption::VALUE_NONE, 'Forces install even if the directory already exists');
+            ->addOption('force', 'f', InputOption::VALUE_NONE, 'Forces install even if the directory already exists')
+            ->addOption('user', null, InputOption::VALUE_OPTIONAL, 'Would you like to create a Filament user?', true);
     }
 
     /**
      * Interact with the user before validating the input.
      *
-     * @param  \Symfony\Component\Console\Input\InputInterface  $input
-     * @param  \Symfony\Component\Console\Output\OutputInterface  $output
+     * @param \Symfony\Component\Console\Input\InputInterface $input
+     * @param \Symfony\Component\Console\Output\OutputInterface $output
      * @return void
      */
     protected function interact(InputInterface $input, OutputInterface $output)
@@ -65,41 +66,47 @@ class NewCommand extends Command
 
         $this->configurePrompts($input, $output);
 
-        $output->write(PHP_EOL.'  <fg=blue>                                                 
+        $output->write(PHP_EOL . '  <fg=blue>                                                 
  _____ _____ __    _____ _____ _____ _____ _____ 
 |   __|     |  |  |  _  |     |   __|   | |_   _|
 |   __|-   -|  |__|     | | | |   __| | | | | |  
-|__|  |_____|_____|__|__|_|_|_|_____|_|___| |_|  </>'.PHP_EOL.PHP_EOL);
+|__|  |_____|_____|__|__|_|_|_|_____|_|___| |_|  </>' . PHP_EOL . PHP_EOL);
 
-        if (! $input->getArgument('name')) {
+        if (!$input->getArgument('name')) {
             $input->setArgument('name', text(
                 label: 'What is the name of your project?',
                 placeholder: 'E.g. example-app',
                 required: 'The project name is required.',
-                validate: fn ($value) => preg_match('/[^\pL\pN\-_.]/', $value) !== 0
+                validate: fn($value) => preg_match('/[^\pL\pN\-_.]/', $value) !== 0
                     ? 'The name may only contain letters, numbers, dashes, underscores, and periods.'
                     : null,
             ));
         }
 
-        if (! $input->getOption('phpunit') && ! $input->getOption('pest')) {
+        if (!$input->getOption('phpunit') && !$input->getOption('pest')) {
             $input->setOption('pest', select(
-                label: 'Which testing framework do you prefer?',
-                options: ['Pest', 'PHPUnit'],
-                default: 'Pest',
+                    label: 'Which testing framework do you prefer?',
+                    options: ['Pest', 'PHPUnit'],
+                    default: 'Pest',
             ) === 'Pest');
         }
 
-        if (! $input->getOption('git') && $input->getOption('github') === false && Process::fromShellCommandline('git --version')->run() === 0) {
+        if (!$input->getOption('git') && $input->getOption('github') === false && Process::fromShellCommandline('git --version')->run() === 0) {
             $input->setOption('git', confirm(label: 'Would you like to initialize a Git repository?', default: false));
         }
+
+        $input->setOption('user', confirm(
+            label: 'Would you like to create a Filament user?',
+            default: true
+        ));
+
     }
 
     /**
      * Execute the command.
      *
-     * @param  \Symfony\Component\Console\Input\InputInterface  $input
-     * @param  \Symfony\Component\Console\Output\OutputInterface  $output
+     * @param \Symfony\Component\Console\Input\InputInterface $input
+     * @param \Symfony\Component\Console\Output\OutputInterface $output
      * @return int
      */
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -108,13 +115,13 @@ class NewCommand extends Command
 
         $name = $input->getArgument('name');
 
-        $directory = $name !== '.' ? getcwd().'/'.$name : '.';
+        $directory = $name !== '.' ? getcwd() . '/' . $name : '.';
 
         $this->composer = new Composer(new Filesystem(), $directory);
 
         $version = $this->getVersion($input);
 
-        if (! $input->getOption('force')) {
+        if (!$input->getOption('force')) {
             $this->verifyApplicationDoesntExist($directory);
         }
 
@@ -126,10 +133,10 @@ class NewCommand extends Command
         $phpBinary = $this->phpBinary();
 
         $commands = [
-            $composer." create-project laravel/laravel \"$directory\" $version --remove-vcs --prefer-dist --no-scripts",
-            $composer." run post-root-package-install -d \"$directory\"",
-            $phpBinary." \"$directory/artisan\" key:generate --ansi",
-            $composer." require -d \"$directory\"  filament/filament",
+            $composer . " create-project laravel/laravel \"$directory\" $version --remove-vcs --prefer-dist --no-scripts",
+            $composer . " run post-root-package-install -d \"$directory\"",
+            $phpBinary . " \"$directory/artisan\" key:generate --ansi",
+            $composer . " require -d \"$directory\"  filament/filament",
             $phpBinary." \"$directory/artisan\" filament:install --panels",
         ];
 
@@ -149,8 +156,8 @@ class NewCommand extends Command
             if ($name !== '.') {
                 $this->replaceInFile(
                     'APP_URL=http://localhost',
-                    'APP_URL='.$this->generateAppUrl($name),
-                    $directory.'/.env'
+                    'APP_URL=' . $this->generateAppUrl($name),
+                    $directory . '/.env'
                 );
 
                 [$database, $migrate] = $this->promptForDatabaseOptions($directory, $input);
@@ -158,9 +165,19 @@ class NewCommand extends Command
                 $this->configureDefaultDatabaseConnection($directory, $database, $name);
 
                 if ($migrate) {
+                    $user = $input->getOption('user');
                     $this->runCommands([
-                        $this->phpBinary().' artisan migrate',
+                        $this->phpBinary() . ' artisan migrate',
                     ], $input, $output, workingPath: $directory);
+
+                    if ($user) {
+                        $output->writeln(' Create your Filament user:');
+                        $output->writeln('');
+
+                        $this->runCommands([
+                            $this->phpBinary() . ' artisan make:filament-user',
+                        ], $input, $output, workingPath: $directory);
+                    };
                 }
             }
 
@@ -178,12 +195,12 @@ class NewCommand extends Command
                 $output->writeln('');
             }
 
-            $output->writeln("  <bg=blue;fg=white> INFO </> Application ready in <options=bold>[{$name}]</>. You can start your local development using:".PHP_EOL);
-            $output->writeln('<fg=gray>➜</> <options=bold>cd '.$name.'</>');
+            $output->writeln("  <bg=blue;fg=white> INFO </> Application ready in <options=bold>[{$name}]</>. You can start your local development using:" . PHP_EOL);
+            $output->writeln('<fg=gray>➜</> <options=bold>cd ' . $name . '</>');
 
             if ($this->isParked($directory)) {
                 $url = $this->generateAppUrl($name);
-                $output->writeln('<fg=gray>➜</> Open: <options=bold;href='.$url.'>'.$url.'</>');
+                $output->writeln('<fg=gray>➜</> Open: <options=bold;href=' . $url . '>' . $url . '</>');
             } else {
                 $output->writeln('<fg=gray>➜</> <options=bold>php artisan serve</>');
             }
@@ -215,30 +232,30 @@ class NewCommand extends Command
     /**
      * Configure the default database connection.
      *
-     * @param  string  $directory
-     * @param  string  $database
-     * @param  string  $name
+     * @param string $directory
+     * @param string $database
+     * @param string $name
      * @return void
      */
     protected function configureDefaultDatabaseConnection(string $directory, string $database, string $name)
     {
         $this->pregReplaceInFile(
             '/DB_CONNECTION=.*/',
-            'DB_CONNECTION='.$database,
-            $directory.'/.env'
+            'DB_CONNECTION=' . $database,
+            $directory . '/.env'
         );
 
         $this->pregReplaceInFile(
             '/DB_CONNECTION=.*/',
-            'DB_CONNECTION='.$database,
-            $directory.'/.env.example'
+            'DB_CONNECTION=' . $database,
+            $directory . '/.env.example'
         );
 
         if ($database === 'sqlite') {
-            $environment = file_get_contents($directory.'/.env');
+            $environment = file_get_contents($directory . '/.env');
 
             // If database options aren't commented, comment them for SQLite...
-            if (! str_contains($environment, '# DB_HOST=127.0.0.1')) {
+            if (!str_contains($environment, '# DB_HOST=127.0.0.1')) {
                 $this->commentDatabaseConfigurationForSqlite($directory);
 
                 return;
@@ -258,39 +275,39 @@ class NewCommand extends Command
         if (isset($defaultPorts[$database])) {
             $this->replaceInFile(
                 'DB_PORT=3306',
-                'DB_PORT='.$defaultPorts[$database],
-                $directory.'/.env'
+                'DB_PORT=' . $defaultPorts[$database],
+                $directory . '/.env'
             );
 
             $this->replaceInFile(
                 'DB_PORT=3306',
-                'DB_PORT='.$defaultPorts[$database],
-                $directory.'/.env.example'
+                'DB_PORT=' . $defaultPorts[$database],
+                $directory . '/.env.example'
             );
         }
 
         $this->replaceInFile(
             'DB_DATABASE=filament',
-            'DB_DATABASE='.str_replace('-', '_', strtolower($name)),
-            $directory.'/.env'
+            'DB_DATABASE=' . str_replace('-', '_', strtolower($name)),
+            $directory . '/.env'
         );
 
         $this->replaceInFile(
             'DB_DATABASE=filament',
-            'DB_DATABASE='.str_replace('-', '_', strtolower($name)),
-            $directory.'/.env.example'
+            'DB_DATABASE=' . str_replace('-', '_', strtolower($name)),
+            $directory . '/.env.example'
         );
     }
 
     /**
      * Determine if the application is using Laravel 11 or newer.
      *
-     * @param  string  $directory
+     * @param string $directory
      * @return bool
      */
     public function usingLaravelVersionOrNewer(int $usingVersion, string $directory): bool
     {
-        $version = json_decode(file_get_contents($directory.'/composer.json'), true)['require']['laravel/framework'];
+        $version = json_decode(file_get_contents($directory . '/composer.json'), true)['require']['laravel/framework'];
         $version = str_replace('^', '', $version);
         $version = explode('.', $version)[0];
 
@@ -300,7 +317,7 @@ class NewCommand extends Command
     /**
      * Comment the irrelevant database configuration entries for SQLite applications.
      *
-     * @param  string  $directory
+     * @param string $directory
      * @return void
      */
     protected function commentDatabaseConfigurationForSqlite(string $directory): void
@@ -315,21 +332,21 @@ class NewCommand extends Command
 
         $this->replaceInFile(
             $defaults,
-            collect($defaults)->map(fn ($default) => "# {$default}")->all(),
-            $directory.'/.env'
+            collect($defaults)->map(fn($default) => "# {$default}")->all(),
+            $directory . '/.env'
         );
 
         $this->replaceInFile(
             $defaults,
-            collect($defaults)->map(fn ($default) => "# {$default}")->all(),
-            $directory.'/.env.example'
+            collect($defaults)->map(fn($default) => "# {$default}")->all(),
+            $directory . '/.env.example'
         );
     }
 
     /**
      * Uncomment the relevant database configuration entries for non SQLite applications.
      *
-     * @param  string  $directory
+     * @param string $directory
      * @return void
      */
     protected function uncommentDatabaseConfiguration(string $directory)
@@ -344,22 +361,22 @@ class NewCommand extends Command
 
         $this->replaceInFile(
             $defaults,
-            collect($defaults)->map(fn ($default) => substr($default, 2))->all(),
-            $directory.'/.env'
+            collect($defaults)->map(fn($default) => substr($default, 2))->all(),
+            $directory . '/.env'
         );
 
         $this->replaceInFile(
             $defaults,
-            collect($defaults)->map(fn ($default) => substr($default, 2))->all(),
-            $directory.'/.env.example'
+            collect($defaults)->map(fn($default) => substr($default, 2))->all(),
+            $directory . '/.env.example'
         );
     }
 
     /**
      * Determine the default database connection.
      *
-     * @param  string  $directory
-     * @param  \Symfony\Component\Console\Input\InputInterface  $input
+     * @param string $directory
+     * @param \Symfony\Component\Console\Input\InputInterface $input
      * @return array
      */
     protected function promptForDatabaseOptions(string $directory, InputInterface $input)
@@ -368,7 +385,7 @@ class NewCommand extends Command
             $databaseOptions = $this->databaseOptions()
         )->keys()->first();
 
-        if (! $input->getOption('database') && $input->isInteractive()) {
+        if (!$input->getOption('database') && $input->isInteractive()) {
             $input->setOption('database', select(
                 label: 'Which database will your application use?',
                 options: $databaseOptions,
@@ -400,8 +417,8 @@ class NewCommand extends Command
             'pgsql' => ['PostgreSQL', extension_loaded('pdo_pgsql')],
             'sqlsrv' => ['SQL Server', extension_loaded('pdo_sqlsrv')],
         ])
-            ->sortBy(fn ($database) => $database[1] ? 0 : 1)
-            ->map(fn ($database) => $database[0].($database[1] ? '' : ' (Missing PDO extension)'))
+            ->sortBy(fn($database) => $database[1] ? 0 : 1)
+            ->map(fn($database) => $database[0] . ($database[1] ? '' : ' (Missing PDO extension)'))
             ->all();
     }
 
@@ -409,12 +426,12 @@ class NewCommand extends Command
     /**
      * Validate the database driver input.
      *
-     * @param  \Symfony\Components\Console\Input\InputInterface
+     * @param \Symfony\Components\Console\Input\InputInterface
      */
     protected function validateDatabaseOption(InputInterface $input)
     {
-        if ($input->getOption('database') && ! in_array($input->getOption('database'), $drivers = ['mysql', 'mariadb', 'pgsql', 'sqlite', 'sqlsrv'])) {
-            throw new \InvalidArgumentException("Invalid database driver [{$input->getOption('database')}]. Valid options are: ".implode(', ', $drivers).'.');
+        if ($input->getOption('database') && !in_array($input->getOption('database'), $drivers = ['mysql', 'mariadb', 'pgsql', 'sqlite', 'sqlsrv'])) {
+            throw new \InvalidArgumentException("Invalid database driver [{$input->getOption('database')}]. Valid options are: " . implode(', ', $drivers) . '.');
         }
     }
 
@@ -422,8 +439,8 @@ class NewCommand extends Command
     /**
      * Install Pest into the application.
      *
-     * @param  \Symfony\Component\Console\Input\InputInterface  $input
-     * @param  \Symfony\Component\Console\Output\OutputInterface  $output
+     * @param \Symfony\Component\Console\Input\InputInterface $input
+     * @param \Symfony\Component\Console\Output\OutputInterface $output
      * @return void
      */
     protected function installPest(string $directory, InputInterface $input, OutputInterface $output)
@@ -431,10 +448,10 @@ class NewCommand extends Command
         $composerBinary = $this->findComposer();
 
         $commands = [
-            $composerBinary.' remove phpunit/phpunit --dev --no-update',
-            $composerBinary.' require pestphp/pest pestphp/pest-plugin-laravel --no-update --dev',
-            $composerBinary.' update',
-            $this->phpBinary().' ./vendor/bin/pest --init',
+            $composerBinary . ' remove phpunit/phpunit --dev --no-update',
+            $composerBinary . ' require pestphp/pest pestphp/pest-plugin-laravel --no-update --dev',
+            $composerBinary . ' update',
+            $this->phpBinary() . ' ./vendor/bin/pest --init',
         ];
 
         $this->runCommands($commands, $input, $output, workingPath: $directory, env: [
@@ -443,12 +460,12 @@ class NewCommand extends Command
 
         $this->replaceFile(
             'pest/Feature.php',
-            $directory.'/tests/Feature/ExampleTest.php',
+            $directory . '/tests/Feature/ExampleTest.php',
         );
 
         $this->replaceFile(
             'pest/Unit.php',
-            $directory.'/tests/Unit/ExampleTest.php',
+            $directory . '/tests/Unit/ExampleTest.php',
         );
 
         $this->commitChanges('Install Pest', $directory, $input, $output);
@@ -457,9 +474,9 @@ class NewCommand extends Command
     /**
      * Create a Git repository and commit the base Laravel skeleton.
      *
-     * @param  string  $directory
-     * @param  \Symfony\Component\Console\Input\InputInterface  $input
-     * @param  \Symfony\Component\Console\Output\OutputInterface  $output
+     * @param string $directory
+     * @param \Symfony\Component\Console\Input\InputInterface $input
+     * @param \Symfony\Component\Console\Output\OutputInterface $output
      * @return void
      */
     protected function createRepository(string $directory, InputInterface $input, OutputInterface $output)
@@ -479,15 +496,15 @@ class NewCommand extends Command
     /**
      * Commit any changes in the current working directory.
      *
-     * @param  string  $message
-     * @param  string  $directory
-     * @param  \Symfony\Component\Console\Input\InputInterface  $input
-     * @param  \Symfony\Component\Console\Output\OutputInterface  $output
+     * @param string $message
+     * @param string $directory
+     * @param \Symfony\Component\Console\Input\InputInterface $input
+     * @param \Symfony\Component\Console\Output\OutputInterface $output
      * @return void
      */
     protected function commitChanges(string $message, string $directory, InputInterface $input, OutputInterface $output)
     {
-        if (! $input->getOption('git') && $input->getOption('github') === false) {
+        if (!$input->getOption('git') && $input->getOption('github') === false) {
             return;
         }
 
@@ -502,10 +519,10 @@ class NewCommand extends Command
     /**
      * Create a GitHub repository and push the git log to it.
      *
-     * @param  string  $name
-     * @param  string  $directory
-     * @param  \Symfony\Component\Console\Input\InputInterface  $input
-     * @param  \Symfony\Component\Console\Output\OutputInterface  $output
+     * @param string $name
+     * @param string $directory
+     * @param \Symfony\Component\Console\Input\InputInterface $input
+     * @param \Symfony\Component\Console\Output\OutputInterface $output
      * @return void
      */
     protected function pushToGitHub(string $name, string $directory, InputInterface $input, OutputInterface $output)
@@ -513,13 +530,13 @@ class NewCommand extends Command
         $process = new Process(['gh', 'auth', 'status']);
         $process->run();
 
-        if (! $process->isSuccessful()) {
-            $output->writeln('  <bg=yellow;fg=black> WARN </> Make sure the "gh" CLI tool is installed and that you\'re authenticated to GitHub. Skipping...'.PHP_EOL);
+        if (!$process->isSuccessful()) {
+            $output->writeln('  <bg=yellow;fg=black> WARN </> Make sure the "gh" CLI tool is installed and that you\'re authenticated to GitHub. Skipping...' . PHP_EOL);
 
             return;
         }
 
-        $name = $input->getOption('organization') ? $input->getOption('organization')."/$name" : $name;
+        $name = $input->getOption('organization') ? $input->getOption('organization') . "/$name" : $name;
         $flags = $input->getOption('github') ?: '--private';
 
         $commands = [
@@ -532,7 +549,7 @@ class NewCommand extends Command
     /**
      * Verify that the application does not already exist.
      *
-     * @param  string  $directory
+     * @param string $directory
      * @return void
      */
     protected function verifyApplicationDoesntExist($directory)
@@ -545,14 +562,14 @@ class NewCommand extends Command
     /**
      * Generate a valid APP_URL for the given application name.
      *
-     * @param  string  $name
+     * @param string $name
      * @return string
      */
     protected function generateAppUrl($name)
     {
-        $hostname = mb_strtolower($name).'.'.$this->getTld();
+        $hostname = mb_strtolower($name) . '.' . $this->getTld();
 
-        return $this->canResolveHostname($hostname) ? 'http://'.$hostname : 'http://localhost';
+        return $this->canResolveHostname($hostname) ? 'http://' . $hostname : 'http://localhost';
     }
 
     /**
@@ -578,18 +595,18 @@ class NewCommand extends Command
     /**
      * Determine whether the given hostname is resolvable.
      *
-     * @param  string  $hostname
+     * @param string $hostname
      * @return bool
      */
     protected function canResolveHostname($hostname)
     {
-        return gethostbyname($hostname.'.') !== $hostname.'.';
+        return gethostbyname($hostname . '.') !== $hostname . '.';
     }
 
     /**
      * Determine if the given directory is parked using Herd or Valet.
      *
-     * @param  string  $directory
+     * @param string $directory
      * @return bool
      */
     protected function isParked(string $directory)
@@ -612,7 +629,7 @@ class NewCommand extends Command
     /**
      * Get the version that should be downloaded.
      *
-     * @param  \Symfony\Component\Console\Input\InputInterface  $input
+     * @param \Symfony\Component\Console\Input\InputInterface $input
      * @return string
      */
     protected function getVersion(InputInterface $input)
@@ -651,16 +668,16 @@ class NewCommand extends Command
     /**
      * Run the given commands.
      *
-     * @param  array  $commands
-     * @param  \Symfony\Component\Console\Input\InputInterface  $input
-     * @param  \Symfony\Component\Console\Output\OutputInterface  $output
-     * @param  string|null  $workingPath
-     * @param  array  $env
+     * @param array $commands
+     * @param \Symfony\Component\Console\Input\InputInterface $input
+     * @param \Symfony\Component\Console\Output\OutputInterface $output
+     * @param string|null $workingPath
+     * @param array $env
      * @return \Symfony\Component\Process\Process
      */
     protected function runCommands($commands, InputInterface $input, OutputInterface $output, string $workingPath = null, array $env = [])
     {
-        if (! $output->isDecorated()) {
+        if (!$output->isDecorated()) {
             $commands = array_map(function ($value) {
                 if (str_starts_with($value, 'chmod')) {
                     return $value;
@@ -670,7 +687,7 @@ class NewCommand extends Command
                     return $value;
                 }
 
-                return $value.' --no-ansi';
+                return $value . ' --no-ansi';
             }, $commands);
         }
 
@@ -684,7 +701,7 @@ class NewCommand extends Command
                     return $value;
                 }
 
-                return $value.' --quiet';
+                return $value . ' --quiet';
             }, $commands);
         }
 
@@ -694,12 +711,12 @@ class NewCommand extends Command
             try {
                 $process->setTty(true);
             } catch (RuntimeException $e) {
-                $output->writeln('  <bg=yellow;fg=black> WARN </> '.$e->getMessage().PHP_EOL);
+                $output->writeln('  <bg=yellow;fg=black> WARN </> ' . $e->getMessage() . PHP_EOL);
             }
         }
 
         $process->run(function ($type, $line) use ($output) {
-            $output->write('    '.$line);
+            $output->write('    ' . $line);
         });
 
         return $process;
@@ -708,13 +725,13 @@ class NewCommand extends Command
     /**
      * Replace the given file.
      *
-     * @param  string  $replace
-     * @param  string  $file
+     * @param string $replace
+     * @param string $file
      * @return void
      */
     protected function replaceFile(string $replace, string $file)
     {
-        $stubs = dirname(__DIR__).'/stubs';
+        $stubs = dirname(__DIR__) . '/stubs';
 
         file_put_contents(
             $file,
@@ -725,9 +742,9 @@ class NewCommand extends Command
     /**
      * Replace the given string in the given file.
      *
-     * @param  string|array  $search
-     * @param  string|array  $replace
-     * @param  string  $file
+     * @param string|array $search
+     * @param string|array $replace
+     * @param string $file
      * @return void
      */
     protected function replaceInFile(string|array $search, string|array $replace, string $file)
@@ -741,9 +758,9 @@ class NewCommand extends Command
     /**
      * Replace the given string in the given file using regular expressions.
      *
-     * @param  string|array  $search
-     * @param  string|array  $replace
-     * @param  string  $file
+     * @param string|array $search
+     * @param string|array $replace
+     * @param string $file
      * @return void
      */
     protected function pregReplaceInFile(string $pattern, string $replace, string $file)
@@ -752,5 +769,14 @@ class NewCommand extends Command
             $file,
             preg_replace($pattern, $replace, file_get_contents($file))
         );
+    }
+
+    private function promptForUserCreate($directory, InputInterface $input)
+    {
+        $user = $input->setOption('user',
+            confirm(label: 'Would you like to create a Filament user?', default: true)
+        );
+
+        return $user ?? false;
     }
 }
