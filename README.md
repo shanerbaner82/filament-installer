@@ -6,8 +6,12 @@ Filament Installer is a command-line tool that replaces the Laravel installer an
 
 - PHP 8.2+
 
-# Installation
+# Installation if running Herd
 
+```bash
+herd composer global require shanerbaner82/filament-installer
+```
+Otherwise run:
 ```bash
 composer global require shanerbaner82/filament-installer
 ```

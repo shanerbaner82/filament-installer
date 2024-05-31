@@ -47,8 +47,19 @@ class NewCommand extends Command
             ->addOption('github', null, InputOption::VALUE_OPTIONAL, 'Create a new repository on GitHub', false)
             ->addOption('organization', null, InputOption::VALUE_REQUIRED, 'The GitHub organization to create the new repository for')
             ->addOption('database', null, InputOption::VALUE_REQUIRED, 'The database driver your application will use')
+            ->addOption('stack', null, InputOption::VALUE_OPTIONAL, 'The Breeze / Jetstream stack that should be installed')
+            ->addOption('breeze', null, InputOption::VALUE_NONE, 'Installs the Laravel Breeze scaffolding')
+            ->addOption('jet', null, InputOption::VALUE_NONE, 'Installs the Laravel Jetstream scaffolding')
+            ->addOption('dark', null, InputOption::VALUE_NONE, 'Indicate whether Breeze or Jetstream should be scaffolded with dark mode support')
+            ->addOption('typescript', null, InputOption::VALUE_NONE, 'Indicate whether Breeze should be scaffolded with TypeScript support')
+            ->addOption('ssr', null, InputOption::VALUE_NONE, 'Indicate whether Breeze or Jetstream should be scaffolded with Inertia SSR support')
+            ->addOption('api', null, InputOption::VALUE_NONE, 'Indicates whether Jetstream should be scaffolded with API support')
+            ->addOption('teams', null, InputOption::VALUE_NONE, 'Indicates whether Jetstream should be scaffolded with team support')
+            ->addOption('verification', null, InputOption::VALUE_NONE, 'Indicates whether Jetstream should be scaffolded with email verification support')
             ->addOption('pest', null, InputOption::VALUE_NONE, 'Installs the Pest testing framework')
             ->addOption('phpunit', null, InputOption::VALUE_NONE, 'Installs the PHPUnit testing framework')
+            ->addOption('prompt-breeze', null, InputOption::VALUE_NONE, 'Issues a prompt to determine if Breeze should be installed (Deprecated)')
+            ->addOption('prompt-jetstream', null, InputOption::VALUE_NONE, 'Issues a prompt to determine if Jetstream should be installed (Deprecated)')
             ->addOption('force', 'f', InputOption::VALUE_NONE, 'Forces install even if the directory already exists')
             ->addOption('user', null, InputOption::VALUE_OPTIONAL, 'Would you like to create a Filament user?', true);
     }
@@ -70,7 +81,7 @@ class NewCommand extends Command
  _____ _____ __    _____ _____ _____ _____ _____ 
 |   __|     |  |  |  _  |     |   __|   | |_   _|
 |   __|-   -|  |__|     | | | |   __| | | | | |  
-|__|  |_____|_____|__|__|_|_|_|_____|_|___| |_|  </>' . PHP_EOL . PHP_EOL);
+|__|  |_____|_____|__|__|_|_|_|_____|_|___| |_|  </>' .  PHP_EOL);
 
         if (!$input->getArgument('name')) {
             $input->setArgument('name', text(
@@ -81,6 +92,28 @@ class NewCommand extends Command
                     ? 'The name may only contain letters, numbers, dashes, underscores, and periods.'
                     : null,
             ));
+        }
+
+        if (! $input->getOption('breeze') && ! $input->getOption('jet')) {
+            match (select(
+                label: 'Would you like to install a starter kit?',
+                options: [
+                    'none' => 'No starter kit',
+                    'breeze' => 'Laravel Breeze',
+                    'jetstream' => 'Laravel Jetstream',
+                ],
+                default: 'none',
+            )) {
+                'breeze' => $input->setOption('breeze', true),
+                'jetstream' => $input->setOption('jet', true),
+                default => null,
+            };
+        }
+
+        if ($input->getOption('breeze')) {
+            $this->promptForBreezeOptions($input);
+        } elseif ($input->getOption('jet')) {
+            $this->promptForJetstreamOptions($input);
         }
 
         if (!$input->getOption('phpunit') && !$input->getOption('pest')) {
@@ -112,6 +145,7 @@ class NewCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $this->validateDatabaseOption($input);
+        $this->validateStackOption($input);
 
         $name = $input->getArgument('name');
 
@@ -187,6 +221,14 @@ class NewCommand extends Command
 
 
             if ($input->getOption('pest')) {
+                $this->installPest($directory, $input, $output);
+            }
+
+            if ($input->getOption('breeze')) {
+                $this->installBreeze($directory, $input, $output);
+            } elseif ($input->getOption('jet')) {
+                $this->installJetstream($directory, $input, $output);
+            } elseif ($input->getOption('pest')) {
                 $this->installPest($directory, $input, $output);
             }
 
@@ -432,6 +474,30 @@ class NewCommand extends Command
     {
         if ($input->getOption('database') && !in_array($input->getOption('database'), $drivers = ['mysql', 'mariadb', 'pgsql', 'sqlite', 'sqlsrv'])) {
             throw new \InvalidArgumentException("Invalid database driver [{$input->getOption('database')}]. Valid options are: " . implode(', ', $drivers) . '.');
+        }
+    }
+
+    /**
+     * Validate the starter kit stack input.
+     *
+     * @param  \Symfony\Components\Console\Input\InputInterface
+     */
+    protected function validateStackOption(InputInterface $input)
+    {
+        if ($input->getOption('breeze')) {
+            if (! in_array($input->getOption('stack'), $stacks = ['blade', 'livewire', 'livewire-functional', 'react', 'vue', 'api'])) {
+                throw new \InvalidArgumentException("Invalid Breeze stack [{$input->getOption('stack')}]. Valid options are: ".implode(', ', $stacks).'.');
+            }
+
+            return;
+        }
+
+        if ($input->getOption('jet')) {
+            if (! in_array($input->getOption('stack'), $stacks = ['inertia', 'livewire'])) {
+                throw new \InvalidArgumentException("Invalid Jetstream stack [{$input->getOption('stack')}]. Valid options are: ".implode(', ', $stacks).'.');
+            }
+
+            return;
         }
     }
 
@@ -771,12 +837,143 @@ class NewCommand extends Command
         );
     }
 
-    private function promptForUserCreate($directory, InputInterface $input)
+    /**
+     * Install Laravel Breeze into the application.
+     *
+     * @param  string  $directory
+     * @param  \Symfony\Component\Console\Input\InputInterface  $input
+     * @param  \Symfony\Component\Console\Output\OutputInterface  $output
+     * @return void
+     */
+    protected function installBreeze(string $directory, InputInterface $input, OutputInterface $output)
     {
-        $user = $input->setOption('user',
-            confirm(label: 'Would you like to create a Filament user?', default: true)
-        );
+        $commands = array_filter([
+            $this->findComposer().' require laravel/breeze --dev',
+            trim(sprintf(
+                $this->phpBinary().' artisan breeze:install %s %s %s %s %s',
+                $input->getOption('stack'),
+                $input->getOption('typescript') ? '--typescript' : '',
+                $input->getOption('pest') ? '--pest' : '',
+                $input->getOption('dark') ? '--dark' : '',
+                $input->getOption('ssr') ? '--ssr' : '',
+            )),
+        ]);
 
-        return $user ?? false;
+        $this->runCommands($commands, $input, $output, workingPath: $directory);
+
+        $this->commitChanges('Install Breeze', $directory, $input, $output);
+    }
+
+    /**
+     * Install Laravel Jetstream into the application.
+     *
+     * @param  string  $directory
+     * @param  \Symfony\Component\Console\Input\InputInterface  $input
+     * @param  \Symfony\Component\Console\Output\OutputInterface  $output
+     * @return void
+     */
+    protected function installJetstream(string $directory, InputInterface $input, OutputInterface $output)
+    {
+        $commands = array_filter([
+            $this->findComposer().' require laravel/jetstream',
+            trim(sprintf(
+                $this->phpBinary().' artisan jetstream:install %s %s %s %s %s %s %s',
+                $input->getOption('stack'),
+                $input->getOption('api') ? '--api' : '',
+                $input->getOption('dark') ? '--dark' : '',
+                $input->getOption('teams') ? '--teams' : '',
+                $input->getOption('pest') ? '--pest' : '',
+                $input->getOption('verification') ? '--verification' : '',
+                $input->getOption('ssr') ? '--ssr' : '',
+            )),
+        ]);
+
+        $this->runCommands($commands, $input, $output, workingPath: $directory);
+
+        $this->commitChanges('Install Jetstream', $directory, $input, $output);
+    }
+
+    /**
+     * Determine the stack for Breeze.
+     *
+     * @return void
+     */
+    protected function promptForBreezeOptions(InputInterface $input)
+    {
+        if (! $input->getOption('stack')) {
+            $input->setOption('stack', select(
+                label: 'Which Breeze stack would you like to install?',
+                options: [
+                    'blade' => 'Blade with Alpine',
+                    'livewire' => 'Livewire (Volt Class API) with Alpine',
+                    'livewire-functional' => 'Livewire (Volt Functional API) with Alpine',
+                    'react' => 'React with Inertia',
+                    'vue' => 'Vue with Inertia',
+                    'api' => 'API only',
+                ],
+                default: 'blade',
+            ));
+        }
+
+        if (in_array($input->getOption('stack'), ['react', 'vue']) && (! $input->getOption('dark') || ! $input->getOption('ssr'))) {
+            collect(multiselect(
+                label: 'Would you like any optional features?',
+                options: [
+                    'dark' => 'Dark mode',
+                    'ssr' => 'Inertia SSR',
+                    'typescript' => 'TypeScript',
+                ],
+                default: array_filter([
+                    $input->getOption('dark') ? 'dark' : null,
+                    $input->getOption('ssr') ? 'ssr' : null,
+                    $input->getOption('typescript') ? 'typescript' : null,
+                ]),
+            ))->each(fn ($option) => $input->setOption($option, true));
+        } elseif (in_array($input->getOption('stack'), ['blade', 'livewire', 'livewire-functional']) && ! $input->getOption('dark')) {
+            $input->setOption('dark', confirm(
+                label: 'Would you like dark mode support?',
+                default: false,
+            ));
+        }
+    }
+
+    /**
+     * Determine the stack for Jetstream.
+     *
+     * @param  \Symfony\Component\Console\Input\InputInterface  $input
+     * @return void
+     */
+    protected function promptForJetstreamOptions(InputInterface $input)
+    {
+        if (! $input->getOption('stack')) {
+            $input->setOption('stack', select(
+                label: 'Which Jetstream stack would you like to install?',
+                options: [
+                    'livewire' => 'Livewire',
+                    'inertia' => 'Vue with Inertia',
+                ],
+                default: 'livewire',
+            ));
+        }
+
+        collect(multiselect(
+            label: 'Would you like any optional features?',
+            options: collect([
+                'api' => 'API support',
+                'dark' => 'Dark mode',
+                'verification' => 'Email verification',
+                'teams' => 'Team support',
+            ])->when(
+                $input->getOption('stack') === 'inertia',
+                fn ($options) => $options->put('ssr', 'Inertia SSR')
+            )->all(),
+            default: array_filter([
+                $input->getOption('api') ? 'api' : null,
+                $input->getOption('dark') ? 'dark' : null,
+                $input->getOption('teams') ? 'teams' : null,
+                $input->getOption('verification') ? 'verification' : null,
+                $input->getOption('stack') === 'inertia' && $input->getOption('ssr') ? 'ssr' : null,
+            ]),
+        ))->each(fn ($option) => $input->setOption($option, true));
     }
 }
